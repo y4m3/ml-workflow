@@ -1,0 +1,99 @@
+version: "3"
+services:
+
+  # model
+  model:
+    image: model
+    container_name: "${PROJECT_NAME}-model"
+    build:
+      context: ./dockerfiles
+      dockerfile: Dockerfile.model
+    ports:
+      - 8888:8888
+    volumes:
+      - ./:/work
+    command: jupyter lab --ip 0.0.0.0  --allow-root --NotebookApp.token=${JUPYTER_TOKEN}
+    tty: true
+    stdin_open: true
+    deploy:
+      resources:
+        reservations:
+          devices:
+          - 'driver': 'nvidia'
+            'capabilities': ['gpu']
+    networks:
+      - nginx_network
+
+  # mlflow
+  mlflow:
+    image: mlflow
+    container_name: "${PROJECT_NAME}-mlflow"
+    build:
+      context: ./dockerfiles
+      dockerfile: Dockerfile.mlflow
+    ports:
+      - 5000:5000
+    volumes:
+      - ./.database/mlflow:/var/mlflow
+    depends_on:
+      - mysql
+      - minio
+    environment:
+      MLFLOW_S3_ENDPOINT_URL: http://${PROJECT_NAME}-storage:9000
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+    command: mlflow server --backend-store-uri 'mysql://mlflowuser:${MYSQL_PASSWORD}@mysql:3306/mlflowdb' --default-artifact-root 's3://default/' --host 0.0.0.0 --port 5000
+    networks:
+      - nginx_network
+
+  # backend
+  mysql:
+    image: mysql:5.7
+    container_name: "${PROJECT_NAME}-mysql"
+    restart: always
+    environment:
+      MYSQL_DATABASE: mlflowdb
+      MYSQL_USER: mlflowuser
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    volumes:
+      - ./.database/mysql:/var/lib/mysql
+      - ./settings/timeout.cnf:/etc/mysql/conf.d/timeout.cnf
+    networks:
+      - nginx_network
+
+  # storage server
+  minio:
+    image: minio/minio
+    container_name: "${PROJECT_NAME}-storage"
+    ports:
+      - 9000:9000
+    restart: always
+    volumes:
+     - ./.database/minio:/export
+    environment:
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+    command: server /export
+    networks:
+      - nginx_network
+
+  # storage setting
+  defaultbucket:
+    image: minio/mc
+    container_name: "${PROJECT_NAME}-defaultbucket"
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      until (/usr/bin/mc config host add myminio http://${PROJECT_NAME}-storage:9000 ${MINIO_ACCESS_KEY} ${MINIO_SECRET_KEY}) do echo 'try to create buckets...' && sleep 1; done;
+      /usr/bin/mc mb myminio/default;
+      /usr/bin/mc policy download myminio/default;
+      exit 0;
+      "
+    networks:
+      - nginx_network
+
+networks:
+  nginx_network:
+    driver: bridge

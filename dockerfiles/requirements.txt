@@ -1,0 +1,34 @@
+# base
+numpy
+pandas
+scikit-learn
+scipy
+tqdm
+
+# model
+# pytorch // base container
+lightgbm
+optuna
+xgboost
+
+# visualization
+japanize-matplotlib
+matplotlib
+seaborn
+
+# dev
+PyYAML
+black
+flake8
+isort
+jupyterlab
+mypy
+pytest
+python-dotenv
+setuptools
+
+# manage experiments
+boto3
+mlflow
+mysqlclient
+sqlalchemy
